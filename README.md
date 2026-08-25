@@ -18,7 +18,7 @@ Traditional scanner scripts use "hardware sweeping"—rapidly tuning the physica
 
 **2. Download the Code:** Open your terminal and paste this command to clone the repository and enter the folder:
 ```bash
-git clone https://[github.com/UPMI-Scanner/airscan_hybrid.git](https://github.com/UPMI-Scanner/airscan_hybrid.git)
+git clone [https://github.com/UPMI-Scanner/airscan_hybrid.git](https://github.com/UPMI-Scanner/airscan_hybrid.git)
 cd airscan_hybrid
 ```
 
