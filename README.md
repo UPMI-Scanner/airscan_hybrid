@@ -18,13 +18,13 @@ Traditional scanner scripts use "hardware sweeping"—rapidly tuning the physica
 
 **2. Download the Code:** Open your terminal and paste this command to clone the repository and enter the folder:
 ```bash
-git clone [https://github.com/UPMI-Scanner/airscan_hybrid.git](https://github.com/UPMI-Scanner/airscan_hybrid.git)
+git clone https://[github.com/UPMI-Scanner/airscan_hybrid.git](https://github.com/UPMI-Scanner/airscan_hybrid.git)
 cd airscan_hybrid
 ```
 
 **3. Add Your Frequencies:** Open the `channels.csv` file and add your local frequencies.
 
-**4. Select Your Hardware:** Open `hybrid_ui.py` and edit the **SCANNER SETTINGS** block at the very top to match your SDR dongle (Index or Serial Number).
+**4. Select Your Hardware:** Open `hybrid_ui.py` and edit the **SCANNER SETTINGS** block at the very top to match your SDR dongle.
 
 **5. Launch:** Run the dashboard:
 ```bash
