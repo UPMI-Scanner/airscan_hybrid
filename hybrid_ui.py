@@ -5,8 +5,8 @@ from datetime import datetime
 #                     --- SCANNER SETTINGS ---
 # Beginners: Edit these variables to match your specific SDR hardware!
 # ======================================================================
-SQUELCH_LEVEL = 20.0
-GAIN_LEVEL = 28.0
+SQUELCH_LEVEL = 18.0
+GAIN_LEVEL = 32.0
 
 # DEVICE SELECTION:
 # If you only have one SDR dongle plugged in, use: 'index = 0;'
@@ -246,4 +246,20 @@ def curses_ui(stdscr):
             proc.kill()
 
 if __name__ == "__main__":
-    curses.wrapper(curses_ui)
+    import sys, time
+    # ANSI escape code to auto-resize terminal window to 30 rows and 110 columns
+    sys.stdout.write("\x1b[8;30;110t")
+    sys.stdout.flush()
+    time.sleep(0.1)
+    
+    try:
+        curses.wrapper(curses_ui)
+    except KeyboardInterrupt:
+        pass  # Catch Ctrl+C and exit cleanly
+    except Exception as e:
+        import traceback
+        with open("crash.log", "w") as f:
+            f.write(traceback.format_exc())
+        print(f"\n[!] AirScan Hybrid experienced an error and safely closed.")
+        print(f"[!] The terminal was protected. Error details saved to crash.log: {e}\n")
+
