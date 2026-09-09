@@ -19,15 +19,18 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # ======================================================================
-#                       --- HARDWARE SETTINGS ---
+#                       --- HARDWARE & SCANNER SETTINGS ---
 # ======================================================================
-SQUELCH_LEVEL: float = 20.0
-GAIN_LEVEL: float = 32.0
+SQUELCH_LEVEL: float = 19.0
+GAIN_LEVEL: float = 33.0
 SDR_DEVICE: str = 'serial = "AIR";'  # Or: 'index = 0;'
-RETENTION_HOURS: int = 24  # Purge audio clips older than this threshold
+
+# Audio Retention (Hours): Set how long recordings are retained before being
+# automatically purged. Set to 0 to disable auto-pruning completely (keep all).
+RETENTION_HOURS: int = 24
 # ======================================================================
 
 BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
@@ -104,8 +107,14 @@ def build_config_from_csv() -> Dict[str, str]:
     return mapping
 
 
-def start_housekeeper(directory: str, max_age_hours: int, stop_event: threading.Event) -> threading.Thread:
-    """Background worker that removes audio files exceeding retention threshold."""
+def start_housekeeper(directory: str, max_age_hours: int, stop_event: threading.Event) -> Optional[threading.Thread]:
+    """Background worker that removes audio files exceeding the retention threshold.
+    
+    If max_age_hours is 0 or negative, auto-pruning is disabled.
+    """
+    if max_age_hours <= 0:
+        return None
+
     def worker() -> None:
         while not stop_event.is_set():
             try:
@@ -212,7 +221,7 @@ def curses_ui(stdscr: curses.window) -> None:
     last_raw = "Initializing RTL-SDR hardware..."
 
     def safe_addstr(y: int, x: int, text: str, attr: int = 0) -> None:
-        """Write strings safely within boundary bounds to prevent curses edge crashes."""
+        """Write strings safely within terminal boundary bounds."""
         max_y, max_x = stdscr.getmaxyx()
         if 0 <= y < max_y and 0 <= x < max_x:
             stdscr.addstr(y, x, text[:max(0, max_x - x - 1)], attr)
@@ -248,7 +257,6 @@ def curses_ui(stdscr: curses.window) -> None:
                 for sig, noise, star, f in matches:
                     is_active = (star == "*")
                     now_epoch = time.time()
-                    # 12-hour clock format (e.g., 03:45:12 PM)
                     now_clock = datetime.now().strftime("%I:%M:%S %p")
 
                     try:
@@ -288,7 +296,6 @@ def curses_ui(stdscr: curses.window) -> None:
                 curses.napms(100)
                 continue
 
-            # Header rendering with 12-hour format
             current_time = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
             title = f" AIRSCAN HYBRID DASHBOARD // {current_time} "
             safe_addstr(0, max(0, (max_x - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
@@ -320,7 +327,6 @@ def curses_ui(stdscr: curses.window) -> None:
                 snr_db, snr_bar, snr_val = compute_snr_meter(entry["sig"], entry["noise"])
                 sig_noise_str = f"{entry['sig']}/{entry['noise']} dB" if entry["sig"] != "--" else "--/-- dB"
 
-                # Dynamic SNR color ramp: Green (Strong) -> Yellow (Mid) -> Red (Weak)
                 if snr_val >= 15.0:
                     meter_color = curses.color_pair(1) | curses.A_BOLD
                 elif snr_val >= 6.0:
@@ -331,7 +337,6 @@ def curses_ui(stdscr: curses.window) -> None:
                     meter_color = curses.color_pair(2) | curses.A_DIM
 
                 if entry["active"]:
-                    # Whole row inverts on active audio
                     pfx = "*"
                     status = "REC / VOICE"
                     row_full = (
@@ -341,7 +346,6 @@ def curses_ui(stdscr: curses.window) -> None:
                     )
                     safe_addstr(row_idx, 2, row_full, curses.color_pair(1) | curses.A_BOLD | curses.A_REVERSE)
                 else:
-                    # Segmented colorful columns during scanning
                     pfx = " "
                     status = "SCANNING"
                     safe_addstr(row_idx, 2, f" {pfx} {f_str:>7} MHz  ", curses.color_pair(2) | curses.A_BOLD)

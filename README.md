@@ -10,7 +10,7 @@ AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station
 
 * **Dynamic Adaptive Sorting (`S` Key):** Cycle on-the-fly between **Frequency** (numerical order), **Most Hits** (highest activity channels ranked at the top), and **Recent** (most recently active frequencies jump immediately to row 1).
 * **Real-Time SNR Metering:** Automatic Signal-to-Noise Ratio calculation paired with a dynamic ASCII bar graph and colored signal ramps (Green for strong, Yellow for moderate, Red for weak).
-* **Automated Recording Housekeeper:** A lightweight background thread monitors the recordings directory and purges audio clips older than 24 hours, preventing storage exhaustion during long monitoring runs.
+* **Configurable Auto-Pruning Housekeeper:** Background thread automatically purges old audio clips after a user-defined retention period, or can be disabled entirely to keep all recordings indefinitely.
 * **Timestamped Audio Filenames:** Recordings are saved with exact date and time templates (`airband_YYYYMMDD_HHMMSS`), eliminating filename collisions.
 * **Auto-Generated Configuration:** Automatically generates a clean, valid `rtl_airband.conf` on launch by parsing a standard `channels.csv` list.
 * **Smooth Channel Scrolling:** Navigate long frequency lists with standard Up/Down arrow keys.
@@ -47,6 +47,25 @@ Frequency,Name
 
 * **Column 1:** Frequency in MHz
 * **Column 2:** Channel label / agency description
+
+---
+
+## Audio Retention & Auto-Prune Configuration
+
+You can customize how long recorded audio clips are kept before being pruned, or turn pruning off completely.
+
+Open `hybrid_ui.py` in any text editor and adjust `RETENTION_HOURS` under the **HARDWARE & SCANNER SETTINGS** section near the top:
+
+```python
+# Keep recordings for 48 hours (default is 24)
+RETENTION_HOURS = 48
+
+# Keep recordings forever (disables auto-deletion entirely)
+RETENTION_HOURS = 0
+```
+
+* **Any positive number (`1`, `24`, `72`):** Purges audio files older than that number of hours.
+* **`0`:** Disables the background pruning housekeeper completely so all audio is preserved indefinitely.
 
 ---
 
