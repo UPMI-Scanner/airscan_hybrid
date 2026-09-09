@@ -18,14 +18,18 @@ AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station
 
 ---
 
-## Keyboard Controls
+## Installation & Setup
 
-| Key | Action |
-| :--- | :--- |
-| **`↑` / `↓`** | Scroll up or down through the channel list |
-| **`S`** | Cycle sorting modes (**Frequency** → **Most Hits** → **Recent**) |
-| **`R`** | Reset all channel hit counters to zero |
-| **`Q`** | Quit dashboard and cleanly shut down the SDR background engine |
+1. **Clone the repository:**
+```bash
+git clone https://github.com/UPMI-Scanner/airscan_hybrid.git
+cd airscan_hybrid
+```
+
+2. **System Requirements:**
+* Linux (Debian, Ubuntu, Raspberry Pi OS, Mint, etc.)
+* Python 3.8+
+* `rtl_airband` installed and accessible in your system `$PATH`
 
 ---
 
@@ -53,6 +57,17 @@ Launch the dashboard directly from your terminal:
 ```bash
 python3 hybrid_ui.py
 ```
+
+---
+
+## Keyboard Controls
+
+| Key | Action |
+| :--- | :--- |
+| **`↑` / `↓`** | Scroll up or down through the channel list |
+| **`S`** | Cycle sorting modes (**Frequency** → **Most Hits** → **Recent**) |
+| **`R`** | Reset all channel hit counters to zero |
+| **`Q`** | Quit dashboard and cleanly shut down the SDR background engine |
 
 ---
 
