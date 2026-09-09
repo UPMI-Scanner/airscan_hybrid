@@ -30,3 +30,7 @@ cd airscan_hybrid
 ```bash
 python3 hybrid_ui.py
 ```
+
+## Acknowledgments & Prerequisites
+This dashboard requires **rtl_airband** to function as the underlying radio scanner engine.
+* [RTLSDR-Airband GitHub Repository](https://github.com/szpajder/RTLSDR-Airband) by Tomasz Lemiech (`szpajder`).
