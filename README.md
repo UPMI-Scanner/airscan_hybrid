@@ -1,36 +1,62 @@
-# AirScan Hybrid ✈️
-A DSP-based AM aviation scanner with hit tracking and a perfectly aligned terminal UI. 
+# AirScan Hybrid Dashboard
 
-*AirScan Hybrid is a custom Python UI frontend powered by the excellent rtl_airband engine.*
+A high-visibility, curses-based terminal dashboard for monitoring aviation and marine radio communications using `rtl_airband`.
 
-## Why Hybrid?
-Traditional scanner scripts use "hardware sweeping"—rapidly tuning the physical SDR chip back and forth. This causes micro-drops in audio and choppy voices. AirScan Hybrid fixes this by using Digital Signal Processing (DSP) to park the dongle in one spot, listening to a massive chunk of the aviation band simultaneously for crystal-clear, drop-free AM audio.
+AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station, providing dynamic sorting, real-time signal strength metrics, visual SNR metering, and automated audio housekeeping in a clean terminal user interface (TUI).
 
-## Features
-* **Simultaneous Monitoring:** Never miss a transmission due to hardware scanning lag.
-* **Hit Tracking:** Live counters keep track of which channels are the most active.
-* **Active Filter:** Press `[F]` to instantly hide dead air and only display active frequencies.
-* **Bulletproof Grid:** A mathematically locked terminal interface that never breaks alignment.
+---
 
-## Setup & Installation
+## Key Features
 
-**1. Prerequisite:** You must have `rtl_airband` installed on your Linux system.
+* **Dynamic Adaptive Sorting (`S` Key):** Cycle on-the-fly between **Frequency** (numerical order), **Most Hits** (highest activity channels ranked at the top), and **Recent** (most recently active frequencies jump immediately to row 1).
+* **Real-Time SNR Metering:** Automatic Signal-to-Noise Ratio calculation paired with a dynamic ASCII bar graph and colored signal ramps (Green for strong, Yellow for moderate, Red for weak).
+* **Automated Recording Housekeeper:** A lightweight background thread monitors the recordings directory and purges audio clips older than 24 hours, preventing storage exhaustion during long monitoring runs.
+* **Timestamped Audio Filenames:** Recordings are saved with exact date and time templates (`airband_YYYYMMDD_HHMMSS`), eliminating filename collisions.
+* **Auto-Generated Configuration:** Automatically generates a clean, valid `rtl_airband.conf` on launch by parsing a standard `channels.csv` list.
+* **Smooth Channel Scrolling:** Navigate long frequency lists with standard Up/Down arrow keys.
+* **12-Hour Activity Clock:** Formats all scan events, transmission logs, and headers using standard 12-hour time (`HH:MM:SS AM/PM`).
 
-**2. Download the Code:** Open your terminal and paste this command to clone the repository and enter the folder:
-```bash
-git clone https://github.com/UPMI-Scanner/airscan_hybrid.git
-cd airscan_hybrid
+---
+
+## Keyboard Controls
+
+| Key | Action |
+| :--- | :--- |
+| **`↑` / `↓`** | Scroll up or down through the channel list |
+| **`S`** | Cycle sorting modes (**Frequency** → **Most Hits** → **Recent**) |
+| **`R`** | Reset all channel hit counters to zero |
+| **`Q`** | Quit dashboard and cleanly shut down the SDR background engine |
+
+---
+
+## Channel Setup (`channels.csv`)
+
+Add, edit, or remove monitoring channels using standard CSV formatting in `channels.csv`:
+
+```csv
+Frequency,Name
+118.100,Local Tower
+122.800,Unicom CTAF
+121.500,Aviation Emergency
+133.550,ZMP Center
 ```
 
-**3. Add Your Frequencies:** Open the `channels.csv` file and add your local frequencies.
+* **Column 1:** Frequency in MHz
+* **Column 2:** Channel label / agency description
 
-**4. Select Your Hardware:** Open `hybrid_ui.py` and edit the **SCANNER SETTINGS** block at the very top to match your SDR dongle.
+---
 
-**5. Launch:** Run the dashboard:
+## Usage
+
+Launch the dashboard directly from your terminal:
+
 ```bash
 python3 hybrid_ui.py
 ```
 
+---
+
 ## Acknowledgments & Prerequisites
-This dashboard requires **rtl_airband** to function as the underlying radio scanner engine.
+
+This dashboard requires **rtl_airband** installed on the host system to serve as the radio scanning engine:
 * [RTLSDR-Airband GitHub Repository](https://github.com/szpajder/RTLSDR-Airband) by Tomasz Lemiech (`szpajder`).
