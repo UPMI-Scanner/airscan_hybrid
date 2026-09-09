@@ -1,0 +1,6 @@
+{
+  "sdr_device": "serial = \"AIR\";",
+  "gain_level": 33.0,
+  "squelch_level": 19.0,
+  "retention_hours": 24
+}

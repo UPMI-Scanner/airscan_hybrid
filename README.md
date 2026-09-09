@@ -10,9 +10,10 @@ AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station
 
 * **Dynamic Adaptive Sorting (`S` Key):** Cycle on-the-fly between **Frequency** (numerical order), **Most Hits** (highest activity channels ranked at the top), and **Recent** (most recently active frequencies jump immediately to row 1).
 * **Real-Time SNR Metering:** Automatic Signal-to-Noise Ratio calculation paired with a dynamic ASCII bar graph and colored signal ramps (Green for strong, Yellow for moderate, Red for weak).
+* **Dedicated JSON Configuration (`settings.json`):** Tune SDR gain, squelch threshold, serial device IDs, and retention policies in an external config file without modifying application code.
 * **Configurable Auto-Pruning Housekeeper:** Background thread automatically purges old audio clips after a user-defined retention period, or can be disabled entirely to keep all recordings indefinitely.
 * **Timestamped Audio Filenames:** Recordings are saved with exact date and time templates (`airband_YYYYMMDD_HHMMSS`), eliminating filename collisions.
-* **Auto-Generated Configuration:** Automatically generates a clean, valid `rtl_airband.conf` on launch by parsing a standard `channels.csv` list.
+* **Auto-Generated Configuration:** Automatically generates a clean, valid `rtl_airband.conf` on launch by parsing your `channels.csv` and `settings.json`.
 * **Smooth Channel Scrolling:** Navigate long frequency lists with standard Up/Down arrow keys.
 * **12-Hour Activity Clock:** Formats all scan events, transmission logs, and headers using standard 12-hour time (`HH:MM:SS AM/PM`).
 
@@ -33,6 +34,26 @@ cd airscan_hybrid
 
 ---
 
+## Hardware Configuration (`settings.json`)
+
+Hardware settings are managed in `settings.json`. If this file does not exist, AirScan Hybrid creates it automatically on first launch with safe defaults:
+
+```json
+{
+  "sdr_device": "serial = \"AIR\";",
+  "gain_level": 33.0,
+  "squelch_level": 19.0,
+  "retention_hours": 24
+}
+```
+
+* **`sdr_device`:** Hardware identifier string for `rtl_airband` (e.g., `serial = "AIR";` or `index = 0;`).
+* **`gain_level`:** Tuner gain in dB (e.g., `33.0` or `0` for AGC).
+* **`squelch_level`:** Squelch SNR threshold in dB. Transmissions must exceed this SNR to unmute and record.
+* **`retention_hours`:** Number of hours to retain recordings before pruning. Set to `0` to disable automatic deletion completely.
+
+---
+
 ## Channel Setup (`channels.csv`)
 
 Add, edit, or remove monitoring channels using standard CSV formatting in `channels.csv`:
@@ -47,25 +68,6 @@ Frequency,Name
 
 * **Column 1:** Frequency in MHz
 * **Column 2:** Channel label / agency description
-
----
-
-## Audio Retention & Auto-Prune Configuration
-
-You can customize how long recorded audio clips are kept before being pruned, or turn pruning off completely.
-
-Open `hybrid_ui.py` in any text editor and adjust `RETENTION_HOURS` under the **HARDWARE & SCANNER SETTINGS** section near the top:
-
-```python
-# Keep recordings for 48 hours (default is 24)
-RETENTION_HOURS = 48
-
-# Keep recordings forever (disables auto-deletion entirely)
-RETENTION_HOURS = 0
-```
-
-* **Any positive number (`1`, `24`, `72`):** Purges audio files older than that number of hours.
-* **`0`:** Disables the background pruning housekeeper completely so all audio is preserved indefinitely.
 
 ---
 

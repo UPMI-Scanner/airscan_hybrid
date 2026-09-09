@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import curses
 from datetime import datetime
+import json
 import os
 import pty
 import queue
@@ -19,24 +20,20 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
-
-# ======================================================================
-#                       --- HARDWARE & SCANNER SETTINGS ---
-# ======================================================================
-SQUELCH_LEVEL: float = 19.0
-GAIN_LEVEL: float = 33.0
-SDR_DEVICE: str = 'serial = "AIR";'  # Or: 'index = 0;'
-
-# Audio Retention (Hours): Set how long recordings are retained before being
-# automatically purged. Set to 0 to disable auto-pruning completely (keep all).
-RETENTION_HOURS: int = 24
-# ======================================================================
+from typing import Any, Dict, List, Optional, Tuple
 
 BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
 CSV_FILE: str = os.path.join(BASE_DIR, "channels.csv")
 CONF_FILE: str = os.path.join(BASE_DIR, "rtl_airband.conf")
+SETTINGS_FILE: str = os.path.join(BASE_DIR, "settings.json")
 REC_DIR: str = os.path.join(BASE_DIR, "recordings")
+
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    "sdr_device": 'serial = "AIR";',
+    "gain_level": 33.0,
+    "squelch_level": 19.0,
+    "retention_hours": 24,
+}
 
 if not shutil.which("rtl_airband"):
     sys.exit("[CRITICAL ERROR] 'rtl_airband' binary not found in system PATH.")
@@ -47,11 +44,36 @@ if not os.path.exists(CSV_FILE):
 os.makedirs(REC_DIR, exist_ok=True)
 
 
-def build_config_from_csv() -> Dict[str, str]:
+def load_settings() -> Dict[str, Any]:
+    """Load settings from settings.json, creating the file with defaults if missing."""
+    if not os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_SETTINGS, f, indent=2)
+        except OSError:
+            pass
+        return DEFAULT_SETTINGS.copy()
+
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            settings = DEFAULT_SETTINGS.copy()
+            if isinstance(data, dict):
+                settings.update(data)
+            return settings
+    except (json.JSONDecodeError, OSError):
+        return DEFAULT_SETTINGS.copy()
+
+
+def build_config_from_csv(settings: Dict[str, Any]) -> Dict[str, str]:
     """Parse channels.csv and construct a timestamped rtl_airband configuration."""
     mapping: Dict[str, str] = {}
     freqs_hz: List[str] = []
     labels_quoted: List[str] = []
+
+    sdr_device = settings.get("sdr_device", 'serial = "AIR";')
+    gain_level = float(settings.get("gain_level", 33.0))
+    squelch_level = float(settings.get("squelch_level", 19.0))
 
     with open(CSV_FILE, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -82,14 +104,14 @@ def build_config_from_csv() -> Dict[str, str]:
     conf_content = f"""devices:
 ({{
   type = "rtlsdr";
-  {SDR_DEVICE}
-  gain = {GAIN_LEVEL};
+  {sdr_device}
+  gain = {gain_level};
   mode = "scan";
   channels:
   ({{
     freqs = ( {f_list} );
     labels = ( {l_list} );
-    squelch_snr_threshold = {SQUELCH_LEVEL};
+    squelch_snr_threshold = {squelch_level};
     outputs: (
       {{ type = "pulse"; }},
       {{
@@ -167,10 +189,11 @@ def curses_ui(stdscr: curses.window) -> None:
     curses.init_pair(6, curses.COLOR_RED, -1)                     # Low / Weak SNR
     curses.init_pair(7, curses.COLOR_WHITE, -1)                   # Standard Text
 
-    config_labels = build_config_from_csv()
+    settings = load_settings()
+    config_labels = build_config_from_csv(settings)
     msg_queue: queue.Queue[str] = queue.Queue()
     stop_housekeeper = threading.Event()
-    start_housekeeper(REC_DIR, RETENTION_HOURS, stop_housekeeper)
+    start_housekeeper(REC_DIR, int(settings.get("retention_hours", 24)), stop_housekeeper)
 
     sort_mode = 0  # 0: Frequency, 1: Hits, 2: Recent Activity
     sort_names = ["Frequency", "Most Hits", "Recent"]
