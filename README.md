@@ -6,6 +6,10 @@ AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station
 
 ---
 
+![AirScan Hybrid Dashboard](screenshot.png)
+
+---
+
 ## Key Features
 
 * **Dynamic Adaptive Sorting (`S` Key):** Cycle on-the-fly between **Frequency** (numerical order), **Most Hits** (highest activity channels ranked at the top), and **Recent** (most recently active frequencies jump immediately to row 1).
