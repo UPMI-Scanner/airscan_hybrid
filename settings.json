@@ -1,6 +1,16 @@
 {
-  "sdr_device": "serial = \"AIR\";",
-  "gain_level": 33.0,
-  "squelch_level": 19.0,
-  "retention_hours": 24
+  "dual_dongle_mode": false,
+  "retention_hours": 24,
+  "device_1": {
+    "name": "Receiver 1",
+    "device": "serial = \"SDR1\";",
+    "gain": 33.0,
+    "squelch": 19.0
+  },
+  "device_2": {
+    "name": "Receiver 2",
+    "device": "serial = \"SDR2\";",
+    "gain": 33.0,
+    "squelch": 19.0
+  }
 }

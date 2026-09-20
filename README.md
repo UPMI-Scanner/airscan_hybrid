@@ -2,7 +2,7 @@
 
 A high-visibility, curses-based terminal dashboard for monitoring aviation and marine radio communications using `rtl_airband`.
 
-AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station, providing dynamic sorting, real-time signal strength metrics, visual SNR metering, and automated audio housekeeping in a clean terminal user interface (TUI).
+AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station, providing dynamic sorting, real-time signal strength metrics, visual SNR metering, automated audio housekeeping, and support for **Single-SDR** or **Dual-SDR** operation in a clean terminal user interface (TUI).
 
 ---
 
@@ -12,14 +12,14 @@ AirScan Hybrid turns standard RTL-SDR dongles into an automated scanning station
 
 ## Key Features
 
+* **Single or Dual-Dongle Architecture:** Monitor a single receiver or run two RTL-SDR dongles simultaneously to sweep two separate frequency bands (e.g., VHF Civilian and UHF Military) without missing traffic.
 * **Dynamic Adaptive Sorting (`S` Key):** Cycle on-the-fly between **Frequency** (numerical order), **Most Hits** (highest activity channels ranked at the top), and **Recent** (most recently active frequencies jump immediately to row 1).
 * **Real-Time SNR Metering:** Automatic Signal-to-Noise Ratio calculation paired with a dynamic ASCII bar graph and colored signal ramps (Green for strong, Yellow for moderate, Red for weak).
-* **Dedicated JSON Configuration (`settings.json`):** Tune SDR gain, squelch threshold, serial device IDs, and retention policies in an external config file without modifying application code.
-* **Configurable Auto-Pruning Housekeeper:** Background thread automatically purges old audio clips after a user-defined retention period, or can be disabled entirely to keep all recordings indefinitely.
-* **Timestamped Audio Filenames:** Recordings are saved with exact date and time templates (`airband_YYYYMMDD_HHMMSS`), eliminating filename collisions.
-* **Auto-Generated Configuration:** Automatically generates a clean, valid `rtl_airband.conf` on launch by parsing your `channels.csv` and `settings.json`.
-* **Smooth Channel Scrolling:** Navigate long frequency lists with standard Up/Down arrow keys.
-* **12-Hour Activity Clock:** Formats all scan events, transmission logs, and headers using standard 12-hour time (`HH:MM:SS AM/PM`).
+* **Centralized Configuration (`settings.json`):** Set receiver gains, squelch thresholds, serial IDs, and audio retention without editing source code.
+* **Automated Housekeeper:** Background thread purges old audio recordings after a user-defined retention period, or can be disabled to preserve all recordings.
+* **Timestamped Audio Filenames:** Recordings are saved with date and time templates (`airband_YYYYMMDD_HHMMSS`), preventing filename collisions.
+* **Auto-Generated Configuration:** Automatically generates a valid `rtl_airband.conf` on startup from your CSV frequency list and settings.
+* **12-Hour Activity Clock:** Formats all scan events and logs using standard 12-hour time (`HH:MM:SS AM/PM`).
 
 ---
 
@@ -40,38 +40,68 @@ cd airscan_hybrid
 
 ## Hardware Configuration (`settings.json`)
 
-Hardware settings are managed in `settings.json`. If this file does not exist, AirScan Hybrid creates it automatically on first launch with safe defaults:
+Settings are managed in `settings.json`. If this file is missing, AirScan Hybrid creates it automatically on first launch:
 
 ```json
 {
-  "sdr_device": "serial = \"AIR\";",
-  "gain_level": 33.0,
-  "squelch_level": 19.0,
-  "retention_hours": 24
+  "dual_dongle_mode": false,
+  "retention_hours": 24,
+  "device_1": {
+    "name": "Receiver 1",
+    "device": "serial = \"SDR1\";",
+    "gain": 33.0,
+    "squelch": 19.0
+  },
+  "device_2": {
+    "name": "Receiver 2",
+    "device": "serial = \"SDR2\";",
+    "gain": 33.0,
+    "squelch": 19.0
+  }
 }
 ```
 
-* **`sdr_device`:** Hardware identifier string for `rtl_airband` (e.g., `serial = "AIR";` or `index = 0;`).
-* **`gain_level`:** Tuner gain in dB (e.g., `33.0` or `0` for AGC).
-* **`squelch_level`:** Squelch SNR threshold in dB. Transmissions must exceed this SNR to unmute and record.
-* **`retention_hours`:** Number of hours to retain recordings before pruning. Set to `0` to disable automatic deletion completely.
+### Single Dongle vs. Dual Dongle
+
+* **Single Dongle Mode (Default):**
+  * Leave `"dual_dongle_mode": false`.
+  * The dashboard monitors all channels through `device_1`.
+  * Point `"device"` to your hardware identifier (e.g., `serial = "SDR1";` or `index = 0;`).
+
+* **Dual Dongle Mode:**
+  * Set `"dual_dongle_mode": true`.
+  * The dashboard sweeps `device_1` and `device_2` simultaneously with independent gain and squelch thresholds.
+  * Point each device to its respective identifier (e.g., `serial = "SDR1";` and `serial = "SDR2";`).
+
+* **`retention_hours`:** Number of hours to keep recorded audio files before pruning. Set to `0` to keep all audio files indefinitely.
 
 ---
 
 ## Channel Setup (`channels.csv`)
 
-Add, edit, or remove monitoring channels using standard CSV formatting in `channels.csv`:
+### Standard Format (Single Dongle)
+In single-dongle mode, use standard 2-column CSV formatting:
 
 ```csv
 Frequency,Name
 118.100,Local Tower
 122.800,Unicom CTAF
 121.500,Aviation Emergency
-133.550,ZMP Center
+133.550,Overhead Center
 ```
 
-* **Column 1:** Frequency in MHz
-* **Column 2:** Channel label / agency description
+### Dual Dongle Format
+In dual-dongle mode, add an optional 3rd column specifying which dongle (`1` or `2`) monitors that frequency:
+
+```csv
+Frequency,Name,Dongle
+118.100,Local Tower,1
+122.800,Unicom CTAF,1
+292.200,Tactical Ops,2
+379.100,Refuel Track,2
+```
+
+*(Any channel left without a 3rd column defaults automatically to Dongle 1).*
 
 ---
 
@@ -98,5 +128,5 @@ python3 hybrid_ui.py
 
 ## Acknowledgments & Prerequisites
 
-This dashboard requires **rtl_airband** installed on the host system to serve as the radio scanning engine:
+This dashboard requires **rtl_airband** installed on the host system to serve as the scanning engine:
 * [RTLSDR-Airband GitHub Repository](https://github.com/szpajder/RTLSDR-Airband) by Tomasz Lemiech (`szpajder`).
