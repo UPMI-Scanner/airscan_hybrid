@@ -8,7 +8,9 @@ and seamless Single-SDR or Dual-SDR support.
 
 from __future__ import annotations
 
+import copy
 import csv
+import ctypes
 import curses
 from datetime import datetime
 import json
@@ -32,9 +34,10 @@ REC_DIR: str = os.path.join(BASE_DIR, "recordings")
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "dual_dongle_mode": False,
     "retention_hours": 24,
+    "locked_out": [],
     "device_1": {
         "name": "Receiver 1",
-        "device": 'serial = "SDR1";',
+        "device": 'serial = "AIR";',
         "gain": 33.0,
         "squelch": 19.0,
     },
@@ -55,6 +58,28 @@ if not os.path.exists(CSV_FILE):
 os.makedirs(REC_DIR, exist_ok=True)
 
 
+def probe_sdr_hardware() -> str:
+    for lib_name in ("libengine.so", "dsp_engine.so"):
+        lib_path = os.path.join(BASE_DIR, lib_name)
+        if os.path.exists(lib_path):
+            try:
+                lib = ctypes.CDLL(lib_path)
+                lib.check_radio_count.restype = ctypes.c_int
+                lib.get_radio_name.argtypes = [ctypes.c_int]
+                lib.get_radio_name.restype = ctypes.c_char_p
+                cnt = lib.check_radio_count()
+                if cnt <= 0:
+                    return "No RTL-SDR Detected"
+                names = []
+                for i in range(cnt):
+                    n = lib.get_radio_name(i)
+                    names.append(n.decode("utf-8", "ignore") if n else f"SDR#{i}")
+                return f"{cnt}x SDR ({', '.join(names)})"
+            except Exception:
+                pass
+    return "RTL-SDR Ready"
+
+
 def load_settings() -> Dict[str, Any]:
     """Load settings from settings.json, creating defaults if missing."""
     if not os.path.exists(SETTINGS_FILE):
@@ -63,12 +88,12 @@ def load_settings() -> Dict[str, Any]:
                 json.dump(DEFAULT_SETTINGS, f, indent=2)
         except OSError:
             pass
-        return DEFAULT_SETTINGS.copy()
+        return copy.deepcopy(DEFAULT_SETTINGS)
 
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            settings = DEFAULT_SETTINGS.copy()
+            settings = copy.deepcopy(DEFAULT_SETTINGS)
             if isinstance(data, dict):
                 # Backwards compatibility for single-device configs
                 if "sdr_device" in data and "device_1" not in data:
@@ -81,7 +106,15 @@ def load_settings() -> Dict[str, Any]:
                 settings.update(data)
             return settings
     except (json.JSONDecodeError, OSError):
-        return DEFAULT_SETTINGS.copy()
+        return copy.deepcopy(DEFAULT_SETTINGS)
+
+
+def save_settings(settings: Dict[str, Any]) -> None:
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except OSError:
+        pass
 
 
 def build_config_from_csv(settings: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
@@ -112,7 +145,12 @@ def build_config_from_csv(settings: Dict[str, Any]) -> Dict[str, Dict[str, str]]
             try:
                 f_mhz = float(freq_str)
                 norm_key = f"{f_mhz:.3f}"
+                if norm_key in mapping:
+                    continue
                 mapping[norm_key] = {"name": name_str, "dongle": target_dongle}
+                locked_set = set(settings.get("locked_out", []))
+                if norm_key in locked_set:
+                    continue
                 f_hz = str(int(round(f_mhz * 1_000_000)))
 
                 if is_dual and target_dongle == "2":
@@ -151,7 +189,8 @@ def build_config_from_csv(settings: Dict[str, Any]) -> Dict[str, Dict[str, str]]
         {{
           type = "file";
           directory = "{REC_DIR}";
-          filename_template = "airband_d1_%Y%m%d_%H%M%S";
+          filename_template = "airband_d1";
+          include_freq = true;
         }}
       );
     }});
@@ -176,7 +215,8 @@ def build_config_from_csv(settings: Dict[str, Any]) -> Dict[str, Dict[str, str]]
         {{
           type = "file";
           directory = "{REC_DIR}";
-          filename_template = "airband_d2_%Y%m%d_%H%M%S";
+          filename_template = "airband_d2";
+          include_freq = true;
         }}
       );
     }});
@@ -258,6 +298,8 @@ def curses_ui(stdscr: curses.window) -> None:
     sort_mode = 0  # 0: Frequency, 1: Hits, 2: Recent Activity
     sort_names = ["Frequency", "Most Hits", "Recent"]
     scroll_offset = 0
+    cursor_idx = 0
+    locked_freqs = set(settings.get("locked_out", []))
 
     freq_data: Dict[str, dict] = {
         f_str: {
@@ -286,23 +328,57 @@ def curses_ui(stdscr: curses.window) -> None:
         env=os.environ,
     )
     os.close(slave)
+    master_ref = [master]
+
+    def reload_airband() -> None:
+        nonlocal proc
+        old_fd = master_ref[0]
+        master_ref[0] = -1
+        try:
+            os.close(old_fd)
+        except OSError:
+            pass
+        proc.terminate()
+        try:
+            proc.wait(timeout=1.5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        subprocess.run(["killall", "-9", "rtl_airband"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.2)
+        save_settings(settings)
+        build_config_from_csv(settings)
+        new_m, new_s = pty.openpty()
+        proc = subprocess.Popen(
+            ["rtl_airband", "-c", CONF_FILE, "-f"],
+            stdout=new_s,
+            stderr=new_s,
+            close_fds=True,
+            env=os.environ,
+        )
+        os.close(new_s)
+        master_ref[0] = new_m
 
     def output_reader() -> None:
         ansi_filter = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        while True:
+        while not stop_housekeeper.is_set():
+            fd = master_ref[0]
+            if fd < 0:
+                time.sleep(0.05)
+                continue
             try:
-                raw_chunk = os.read(master, 4096).decode("utf-8", "ignore")
+                raw_chunk = os.read(fd, 4096).decode("utf-8", "ignore")
                 if not raw_chunk:
-                    break
-                clean_chunk = ansi_filter.sub("", raw_chunk)
+                    time.sleep(0.05)
+                    continue
+                clean_chunk = ansi_filter.sub(" ", raw_chunk)
                 msg_queue.put(clean_chunk)
             except OSError:
-                break
+                time.sleep(0.05)
 
     t_reader = threading.Thread(target=output_reader, daemon=True, name="ReaderThread")
     t_reader.start()
 
-    last_raw = "Initializing RTL-SDR hardware..."
+    last_raw = f"Hardware Probe: {probe_sdr_hardware()}"
 
     def safe_addstr(y: int, x: int, text: str, attr: int = 0) -> None:
         max_y, max_x = stdscr.getmaxyx()
@@ -321,10 +397,63 @@ def curses_ui(stdscr: curses.window) -> None:
                 elif key in (ord("r"), ord("R")):
                     for item in freq_data.values():
                         item["hits"] = 0
-                elif key == curses.KEY_UP and scroll_offset > 0:
-                    scroll_offset -= 1
+                elif key in (ord("+"), ord("=")):
+                    sq = min(50.0, float(settings["device_1"].get("squelch", 19.0)) + 1.0)
+                    settings["device_1"]["squelch"] = sq
+                    if is_dual and "device_2" in settings:
+                        settings["device_2"]["squelch"] = sq
+                    last_raw = f"Squelch increased to {sq:.1f} dB — reloading rtl_airband..."
+                    reload_airband()
+                elif key in (ord("-"), ord("_")):
+                    sq = max(1.0, float(settings["device_1"].get("squelch", 19.0)) - 1.0)
+                    settings["device_1"]["squelch"] = sq
+                    if is_dual and "device_2" in settings:
+                        settings["device_2"]["squelch"] = sq
+                    last_raw = f"Squelch decreased to {sq:.1f} dB — reloading rtl_airband..."
+                    reload_airband()
+                elif key == ord("G"):
+                    gn = min(49.6, float(settings["device_1"].get("gain", 33.0)) + 1.0)
+                    settings["device_1"]["gain"] = gn
+                    if is_dual and "device_2" in settings:
+                        settings["device_2"]["gain"] = gn
+                    last_raw = f"RF Gain increased to {gn:.1f} dB — reloading rtl_airband..."
+                    reload_airband()
+                elif key == ord("g"):
+                    gn = max(0.0, float(settings["device_1"].get("gain", 33.0)) - 1.0)
+                    settings["device_1"]["gain"] = gn
+                    if is_dual and "device_2" in settings:
+                        settings["device_2"]["gain"] = gn
+                    last_raw = f"RF Gain decreased to {gn:.1f} dB — reloading rtl_airband..."
+                    reload_airband()
+                elif key == curses.KEY_UP:
+                    cursor_idx = max(0, cursor_idx - 1)
                 elif key == curses.KEY_DOWN:
-                    scroll_offset += 1
+                    cursor_idx = min(max(0, len(freq_data) - 1), cursor_idx + 1)
+                elif key in (ord("l"), ord("L"), ord(" ")):
+                    items_now = list(freq_data.items())
+                    if sort_mode == 0:
+                        items_now.sort(key=lambda x: float(x[0]))
+                    elif sort_mode == 1:
+                        items_now.sort(key=lambda x: (-x[1]["hits"], float(x[0])))
+                    elif sort_mode == 2:
+                        items_now.sort(key=lambda x: (-x[1]["last_epoch"], float(x[0])))
+                    if 0 <= cursor_idx < len(items_now):
+                        sel_f = items_now[cursor_idx][0]
+                        if sel_f in locked_freqs:
+                            locked_freqs.remove(sel_f)
+                            action_str = "UNLOCKED"
+                        else:
+                            if len(locked_freqs) >= len(freq_data) - 1:
+                                last_raw = "Cannot lock out the last remaining active frequency!"
+                                continue
+                            locked_freqs.add(sel_f)
+                            freq_data[sel_f]["active"] = False
+                            freq_data[sel_f]["sig"] = "--"
+                            freq_data[sel_f]["noise"] = "--"
+                            action_str = "LOCKED OUT"
+                        settings["locked_out"] = sorted(locked_freqs)
+                        last_raw = f"Frequency {sel_f} MHz ({freq_data[sel_f]['label']}) {action_str} — reloading..."
+                        reload_airband()
                 elif key == curses.KEY_RESIZE:
                     curses.update_lines_cols()
             except curses.error:
@@ -371,7 +500,9 @@ def curses_ui(stdscr: curses.window) -> None:
 
             current_time = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
             mode_tag = "DUAL-SDR" if is_dual else "SDR"
-            title = f" AIRSCAN HYBRID ({mode_tag}) // {current_time} "
+            cur_gn = float(settings["device_1"].get("gain", 33.0))
+            cur_sq = float(settings["device_1"].get("squelch", 19.0))
+            title = f" AIRSCAN HYBRID ({mode_tag} | GAIN: {cur_gn:.1f} dB | SQL: {cur_sq:.1f} dB) // {current_time} "
             safe_addstr(0, max(0, (max_x - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
 
             if is_dual:
@@ -395,7 +526,13 @@ def curses_ui(stdscr: curses.window) -> None:
                 items.sort(key=lambda x: (-x[1]["last_epoch"], float(x[0])))
 
             display_items = items
-            max_rows = max_y - 6
+            max_rows = max(1, max_y - 6)
+            if cursor_idx >= len(display_items):
+                cursor_idx = max(0, len(display_items) - 1)
+            if cursor_idx < scroll_offset:
+                scroll_offset = cursor_idx
+            elif cursor_idx >= scroll_offset + max_rows:
+                scroll_offset = cursor_idx - max_rows + 1
             max_scroll = max(0, len(display_items) - max_rows)
             if scroll_offset > max_scroll:
                 scroll_offset = max_scroll
@@ -403,7 +540,9 @@ def curses_ui(stdscr: curses.window) -> None:
             visible = display_items[scroll_offset:scroll_offset + max_rows]
 
             row_idx = 4
-            for f_str, entry in visible:
+            for vis_i, (f_str, entry) in enumerate(visible):
+                is_selected = (scroll_offset + vis_i == cursor_idx)
+                is_locked = (f_str in locked_freqs)
                 snr_db, snr_bar, snr_val = compute_snr_meter(entry["sig"], entry["noise"])
                 sig_noise_str = f"{entry['sig']}/{entry['noise']} dB" if entry["sig"] != "--" else "--/-- dB"
 
@@ -436,28 +575,34 @@ def curses_ui(stdscr: curses.window) -> None:
                         )
                     safe_addstr(row_idx, 2, row_full, curses.color_pair(1) | curses.A_BOLD | curses.A_REVERSE)
                 else:
-                    pfx = " "
-                    status = "SCANNING"
+                    pfx = ">" if is_selected else " "
+                    status = "LOCKED OUT" if is_locked else "SCANNING"
+                    row_hl = curses.A_UNDERLINE if is_selected else 0
+                    status_col = (curses.color_pair(6) | curses.A_BOLD) if is_locked else curses.color_pair(2)
+                    freq_col = (curses.color_pair(6) | curses.A_DIM) if is_locked else (curses.color_pair(2) | curses.A_BOLD)
+                    name_col = (curses.color_pair(6) | curses.A_DIM) if is_locked else (curses.color_pair(7) | curses.A_BOLD)
+                    pfx_col = (curses.color_pair(4) | curses.A_BOLD) if is_selected else curses.color_pair(7)
                     if is_dual:
-                        safe_addstr(row_idx, 2, f" {pfx} ", curses.color_pair(7))
-                        safe_addstr(row_idx, 5, f"{dev_tag:<5}", dev_color)
-                        safe_addstr(row_idx, 10, f"{f_str:>7} MHz  ", curses.color_pair(2) | curses.A_BOLD)
-                        safe_addstr(row_idx, 23, f"{entry['label'][:19]:<20}", curses.color_pair(7) | curses.A_BOLD)
-                        safe_addstr(row_idx, 43, f"{snr_db:>5}  ", meter_color)
-                        safe_addstr(row_idx, 50, f"{snr_bar:<8} ", meter_color)
-                        safe_addstr(row_idx, 59, f"{sig_noise_str:>12}  ", curses.color_pair(7))
-                        safe_addstr(row_idx, 73, f"#{entry['hits']:<5} ", curses.color_pair(4) | curses.A_BOLD)
-                        safe_addstr(row_idx, 80, f"{entry['last']:^13}   ", curses.color_pair(1) if entry["hits"] > 0 else curses.color_pair(7) | curses.A_DIM)
-                        safe_addstr(row_idx, 96, f"{status:<10}", curses.color_pair(2))
+                        safe_addstr(row_idx, 2, f" {pfx} ", pfx_col | row_hl)
+                        safe_addstr(row_idx, 5, f"{dev_tag:<5}", dev_color | row_hl)
+                        safe_addstr(row_idx, 10, f"{f_str:>7} MHz  ", freq_col | row_hl)
+                        safe_addstr(row_idx, 23, f"{entry['label'][:19]:<20}", name_col | row_hl)
+                        safe_addstr(row_idx, 43, f"{snr_db:>5}  ", meter_color | row_hl)
+                        safe_addstr(row_idx, 50, f"{snr_bar:<8} ", meter_color | row_hl)
+                        safe_addstr(row_idx, 59, f"{sig_noise_str:>12}  ", curses.color_pair(7) | row_hl)
+                        safe_addstr(row_idx, 73, f"#{entry['hits']:<5} ", curses.color_pair(4) | curses.A_BOLD | row_hl)
+                        safe_addstr(row_idx, 80, f"{entry['last']:^13}   ", (curses.color_pair(1) if entry["hits"] > 0 else curses.color_pair(7) | curses.A_DIM) | row_hl)
+                        safe_addstr(row_idx, 96, f"{status:<10}", status_col | row_hl)
                     else:
-                        safe_addstr(row_idx, 2, f" {pfx} {f_str:>7} MHz  ", curses.color_pair(2) | curses.A_BOLD)
-                        safe_addstr(row_idx, 18, f"{entry['label'][:19]:<20}", curses.color_pair(7) | curses.A_BOLD)
-                        safe_addstr(row_idx, 38, f"{snr_db:>5}  ", meter_color)
-                        safe_addstr(row_idx, 45, f"{snr_bar:<8} ", meter_color)
-                        safe_addstr(row_idx, 54, f"{sig_noise_str:>12}  ", curses.color_pair(7))
-                        safe_addstr(row_idx, 68, f"#{entry['hits']:<5} ", curses.color_pair(4) | curses.A_BOLD)
-                        safe_addstr(row_idx, 75, f"{entry['last']:^13}   ", curses.color_pair(1) if entry["hits"] > 0 else curses.color_pair(7) | curses.A_DIM)
-                        safe_addstr(row_idx, 91, f"{status:<10}", curses.color_pair(2))
+                        safe_addstr(row_idx, 2, f" {pfx} ", pfx_col | row_hl)
+                        safe_addstr(row_idx, 5, f"{f_str:>7} MHz  ", freq_col | row_hl)
+                        safe_addstr(row_idx, 18, f"{entry['label'][:19]:<20}", name_col | row_hl)
+                        safe_addstr(row_idx, 38, f"{snr_db:>5}  ", meter_color | row_hl)
+                        safe_addstr(row_idx, 45, f"{snr_bar:<8} ", meter_color | row_hl)
+                        safe_addstr(row_idx, 54, f"{sig_noise_str:>12}  ", curses.color_pair(7) | row_hl)
+                        safe_addstr(row_idx, 68, f"#{entry['hits']:<5} ", curses.color_pair(4) | curses.A_BOLD | row_hl)
+                        safe_addstr(row_idx, 75, f"{entry['last']:^13}   ", (curses.color_pair(1) if entry["hits"] > 0 else curses.color_pair(7) | curses.A_DIM) | row_hl)
+                        safe_addstr(row_idx, 91, f"{status:<10}", status_col | row_hl)
 
                 row_idx += 1
 
@@ -465,7 +610,7 @@ def curses_ui(stdscr: curses.window) -> None:
             safe_addstr(max_y - 2, 2, f"RAW: {safe_raw}", curses.color_pair(5) | curses.A_DIM)
 
             page_info = f" [Channels {scroll_offset + 1}-{min(scroll_offset + max_rows, len(display_items))} of {len(display_items)}]" if len(display_items) > max_rows else ""
-            ctrls = f"[↑/↓] Scroll  [S] Sort: {sort_names[sort_mode]}  [R] Reset Hits  [Q] Quit{page_info}"
+            ctrls = f"[↑/↓] Select  [L] Lockout  [S] Sort:{sort_names[sort_mode]}  [+/-] Squelch  [G/g] Gain  [R] Reset  [Q] Quit{page_info}"
             safe_addstr(max_y - 1, 2, ctrls)
 
             stdscr.refresh()
@@ -479,7 +624,7 @@ def curses_ui(stdscr: curses.window) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
         try:
-            os.close(master)
+            os.close(master_ref[0])
         except OSError:
             pass
 

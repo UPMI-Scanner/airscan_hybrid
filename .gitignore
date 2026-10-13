@@ -1,3 +1,5 @@
 recordings/
 *.mp3
 *.wav
+__pycache__/
+crash.log

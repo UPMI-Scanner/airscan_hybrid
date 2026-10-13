@@ -1,11 +1,28 @@
 {
   "dual_dongle_mode": false,
   "retention_hours": 24,
+  "locked_out": [
+    "138.300",
+    "139.900",
+    "235.100",
+    "278.500",
+    "290.400",
+    "292.200",
+    "306.700",
+    "317.700",
+    "320.900",
+    "322.200",
+    "327.600",
+    "335.600",
+    "343.500",
+    "364.200",
+    "379.100"
+  ],
   "device_1": {
     "name": "Receiver 1",
-    "device": "serial = \"SDR1\";",
-    "gain": 33.0,
-    "squelch": 19.0
+    "device": "serial = \"AIR\";",
+    "gain": 34.0,
+    "squelch": 17.0
   },
   "device_2": {
     "name": "Receiver 2",
